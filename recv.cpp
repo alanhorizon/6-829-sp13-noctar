@@ -9,7 +9,7 @@
 int main() {
   //const std::string file_name = "/dev/langford";
   int fd_read = open("/dev/langford", O_RDONLY);
-  int fd_write = open("/home/belinkov/classes/6.829/project/written", 
+  int fd_write = open("./written", 
                                 O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR 
                                   | S_IROTH | S_IWOTH );
   char buf[32];
