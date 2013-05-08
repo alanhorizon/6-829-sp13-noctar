@@ -16,6 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with liquid.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+/* edited by alho
+   switched to new streamer api, i.e. change send method call arguments
+   got rid of resamp code
+   got rid of frame code
+   replace frame buffers with repeated random buffer loop
+*/
  
 #include <math.h>
 #include <iostream>
@@ -24,6 +31,7 @@
 #include <complex>
 #include <getopt.h>
 #include <liquid/liquid.h>
+#include <typeinfo>
 
 #include <uhd/usrp/multi_usrp.hpp>
 
@@ -130,29 +138,34 @@ int main (int argc, char **argv)
 
     // add arbitrary resampling component
     // TODO : check that resampling rate does indeed correspond to proper bandwidth
-    msresamp_crcf resamp = msresamp_crcf_create(2.0*tx_resamp_rate, 60.0f);
+    //////msresamp_crcf resamp = msresamp_crcf_create(2.0*tx_resamp_rate, 60.0f);
 
     // transmitter gain (linear)
     float g = powf(10.0f, txgain_dB/20.0f);
 
     // data arrays
-    unsigned char header[8];
-    unsigned char payload[64];
+    //////    unsigned char header[8];
+    //////    unsigned char payload[64];
     
     // create frame generator
-    framegen64 fg = framegen64_create();
-    framegen64_print(fg);
+    //////framegen64 fg = framegen64_create();
+    //////framegen64_print(fg);
 
     // allocate array to hold frame generator samples
-    unsigned int frame_len = FRAME64_LEN;   // length of frame64 (defined in liquid.h)
-    std::complex<float> frame_samples[frame_len];
+    //////unsigned int frame_len = FRAME64_LEN;   // length of frame64 (defined in liquid.h)
+    //////std::complex<float> frame_samples[frame_len];
+    //std::cout << frame_len << std::endl;
+    /* alho:
+       as of may 7 2013, on belinkov-precision-t5600
+       value of frame_len is 1340, frame_samples is array of 1340 samples
+    */
 
     // create buffer for arbitrary resamper output
-    std::complex<float> buffer_resamp[(int)(2*tx_resamp_rate) + 64];
+    //////std::complex<float> buffer_resamp[(int)(2*tx_resamp_rate) + 64];
 
     // vector buffer to send data to USRP
     std::vector<std::complex<float> > usrp_buffer(256);
-    unsigned int usrp_sample_counter = 0;
+    //////unsigned int usrp_sample_counter = 0;
 
     // set up the metadta flags
     uhd::tx_metadata_t md;
@@ -160,52 +173,66 @@ int main (int argc, char **argv)
     md.end_of_burst   = false;  // 
     md.has_time_spec  = false;  // set to false to send immediately
 
-    unsigned int j;
+    // Streamer API test
+    uhd::stream_args_t stream_args("fc32"); //complex floats
+    uhd::tx_streamer::sptr tx_stream = usrp->get_tx_stream(stream_args);
+
+    //////    unsigned int j;
     unsigned int pid;
+    num_frames = 4*num_frames; // TODO, remove, just for visual purposes on noctar waterfall plot
     for (pid=0; pid<num_frames; pid++) {
 
         if (verbose)
             printf("tx packet id: %6u\n", pid);
         
         // write header (first two bytes packet ID, remaining are random)
-        header[0] = (pid >> 8) & 0xff;
-        header[1] = (pid     ) & 0xff;
-        for (j=2; j<8; j++)
-            header[j] = rand() & 0xff;
+	//////        header[0] = (pid >> 8) & 0xff;
+	//////        header[1] = (pid     ) & 0xff;
+	//////        for (j=2; j<8; j++)
+	  //////header[j] = rand() & 0xff;
 
         // initialize payload
-        for (j=0; j<64; j++)
-            payload[j] = rand() & 0xff;
+        //////for (j=0; j<64; j++)
+	//////payload[j] = rand() & 0xff;
 
         // generate the entire frame
-        framegen64_execute(fg, header, payload, frame_samples);
-
+        //////framegen64_execute(fg, header, payload, frame_samples);
+	for (int i=0; i<256;i++){
+	  usrp_buffer[i] = rand() & 0xff;
+	}
         // resample the frame and push resulting samples to USRP
-        for (j=0; j<frame_len; j++) {
+	//////        for (j=0; j<frame_len; j++) {
             // resample one sample at a time
-            unsigned int nw;    // number of samples output from resampler
-            msresamp_crcf_execute(resamp, &frame_samples[j], 1, buffer_resamp, &nw);
+            //////unsigned int nw;    // number of samples output from resampler
+            //////msresamp_crcf_execute(resamp, &frame_samples[j], 1, buffer_resamp, &nw);
 
             // for each output sample, stuff into USRP buffer
-            unsigned int n;
-            for (n=0; n<nw; n++) {
+            //////unsigned int n;
+            //////for (n=0; n<nw; n++) {
                 // append to USRP buffer, scaling by software
-                usrp_buffer[usrp_sample_counter++] = g*buffer_resamp[n];
+                //////usrp_buffer[usrp_sample_counter++] = g*buffer_resamp[n];
 
                 // once USRP buffer is full, reset counter and send to device
-                if (usrp_sample_counter==256) {
+                //////if (usrp_sample_counter==256) {
                     // reset counter
-                    usrp_sample_counter=0;
-
-                    // send the result to the USRP
+                    //////usrp_sample_counter=0;
+		    
+		    std::vector<std::complex<float> *> buffs(usrp->get_tx_num_channels(), &usrp_buffer.front());
+		
+		    // STREAMER API'S SEND METHOD
+		    tx_stream->send(buffs, 256, md, 0.1);
+		
+		    /* DECRECATED SEND API
+		    // send the result to the USRP
                     usrp->get_device()->send(
                         &usrp_buffer.front(), usrp_buffer.size(), md,
                         uhd::io_type_t::COMPLEX_FLOAT32,
-                        uhd::device::SEND_MODE_FULL_BUFF
-                    );
-                }
-            }
-        }
+                        uhd::device::SEND_MODE_FULL_BUFF,
+			0.1
+			);*/
+		    //////                }
+	//////            }
+	//////        }
 
 
     } // packet loop
@@ -213,10 +240,23 @@ int main (int argc, char **argv)
     // send a mini EOB packet
     md.start_of_burst = false;
     md.end_of_burst   = true;
+
+    // UPDATED SEND METHOD FROM STREAMER API
+    tx_stream->send("", 0, md, 0.1);
+
+    /* DECRECATED SEND API FROM LEGACY USRP
     usrp->get_device()->send("", 0, md,
-        uhd::io_type_t::COMPLEX_FLOAT32,
-        uhd::device::SEND_MODE_FULL_BUFF
-    );
+			     uhd::io_type_t::COMPLEX_FLOAT32,
+			     uhd::device::SEND_MODE_FULL_BUFF,
+			     0.1
+    );*/
+    //std::cout << typeid(*(usrp->get_device())).name() << std::endl;
+    /* alho:
+       runtime type of usrp->get_device() is 10usrp2_impl
+       usrp legacy code (deprecated) has send method api
+       current implementations use streamer api
+       streamer api supports send method with different arguments
+    */
 
     // sleep for a small amount of time to allow USRP buffers
     // to flush
@@ -226,8 +266,8 @@ int main (int argc, char **argv)
     printf("usrp data transfer complete\n");
 
     // delete allocated objects
-    framegen64_destroy(fg);
-    msresamp_crcf_destroy(resamp);
+    //////    framegen64_destroy(fg);
+    //////    msresamp_crcf_destroy(resamp);
 
     return 0;
 }
