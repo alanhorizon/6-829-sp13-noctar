@@ -197,17 +197,17 @@ int main (int argc, char **argv)
         // generate the entire frame
         /**/framegen64_execute(fg, header, payload, frame_samples);
 
-     /////unsigned int num_buffers = frame_len / 256;
+     unsigned int num_buffers = frame_len / 256;
      std::vector<std::vector<std::complex<float> *> > buffs_vec;
 
-     
 
     // prepare buffs
+    std::vector<std::complex<float> > cur_usrp_buffer(256);
         for (j=0; j<frame_len; j++) {
-                std::vector<std::complex<float> > usrp_buffer(256);
-                usrp_buffer[usrp_sample_counter++] = g*frame_samples[j];
+                cur_usrp_buffer[usrp_sample_counter++] = g*frame_samples[j];
                 if (usrp_sample_counter == 256) {
                     usrp_sample_counter = 0;
+                    std::vector<std::complex<float> > usrp_buffer(cur_usrp_buffer);
                     std::vector<std::complex<float> *> buffs(usrp->get_tx_num_channels(), &usrp_buffer.front());    
                     buffs_vec.push_back(buffs);
                 }
