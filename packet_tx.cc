@@ -35,6 +35,13 @@
 
 #include <uhd/usrp/multi_usrp.hpp>
 
+#include <fstream>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/fcntl.h>
+
+
 void usage() {
     printf("packet_tx -- transmit simple packets\n");
     printf("\n");
@@ -202,6 +209,74 @@ int main (int argc, char **argv)
                 }
          }
 
+
+    ////// START READING NOCTAR ////////
+
+    // open noctar device
+    int fd_read = open("/dev/langford", O_RDONLY);
+    // open file to write
+    int fd_write = open("./noctar_samples", O_WRONLY | O_CREAT, S_IRUSR
+                                          | S_IWUSR | S_IROTH | S_IWOTH);
+
+    unsigned int num_samples_to_read = 10;
+    unsigned int num_bytes_to_read = 4*num_samples_to_read;
+    char buff[num_bytes_to_read];
+    //ssize_t num_read_samples = read(fd_read, buff, num_bytes_to_read);
+    ssize_t num_read_bytes = 0;
+    ssize_t num_read_samples = 0;
+    int64_t start_transmit = 0;
+    int64_t end_transmit = 0; 
+
+    ///////////// START COUNTER ////////////
+    bool transmitted = false;
+    bool finished_transmitting = false;
+    bool end_transmit_flag = false;
+    int64_t receive_sample_counter = 0;
+    int64_t delta = 3 * 1.5625e7; // sample rate of noctar (2.4e9)/16
+
+
+
+    while(true) {
+       
+        num_read_bytes = read(fd_read, buff, num_bytes_to_read);
+	num_read_samples = num_read_bytes / 4;
+        receive_sample_counter += num_read_samples;
+        
+        if (!transmitted && receive_sample_counter >= 10000) {
+           transmitted = true;
+	   std::cout << "start transmission: " << receive_sample_counter << std::endl;
+           start_transmit = receive_sample_counter;
+        
+           ////// transmit with thread /////
+        }
+ 
+        if (!end_transmit_flag && finished_transmitting) {
+            end_transmit_flag = true;
+	    std::cout << "finished transmitting: " << receive_sample_counter << std::endl;
+	    end_transmit = receive_sample_counter;
+	    
+        }
+
+	if (end_transmit_flag && receive_sample_counter > end_transmit+delta) {
+	    std::cout << "end program: " << receive_sample_counter << std::endl;
+	    break;
+	}
+
+	write(fd_write, buff, num_read_bytes);
+
+        
+    }
+
+    // close noctar
+    close(fd_read);
+    close(fd_write);
+    return 0;
+}
+
+
+
+
+void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool verbose) {
     unsigned int pid;
     for (pid=0; pid<num_frames; pid++) {
         if (verbose)
@@ -227,7 +302,5 @@ int main (int argc, char **argv)
 
     //finished
     printf("usrp data transfer complete\n");
-
-    return 0;
 }
 
