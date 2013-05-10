@@ -248,8 +248,8 @@ int main (int argc, char **argv)
            transmitted = true;
            start_transmit = receive_sample_counter;
 	   std::cout << "start transmission: " << start_transmit << std::endl;
-           
-           ////// transmit with thread /////
+              
+           ////// TODO: transmit with thread /////
 	   transmit(num_frames, tx_stream, buffs_vec, md, verbose);
 	   finished_transmitting = true;
         }
@@ -262,7 +262,7 @@ int main (int argc, char **argv)
         }
 
 	if (end_transmit_flag) {
-	    std::cout << "end_transmit: " << end_transmit << " delta: " << delta << " ended samples: " << receive_sample_counter << std::endl;	
+	    //std::cout << "end_transmit: " << end_transmit << " delta: " << delta << " ended samples: " << receive_sample_counter << std::endl;	
 	    if (receive_sample_counter > end_transmit+delta) {
 	    	std::cout << "end program: " << receive_sample_counter << std::endl;
 	    	break;
