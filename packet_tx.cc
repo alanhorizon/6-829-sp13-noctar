@@ -42,6 +42,8 @@
 #include <sys/fcntl.h>
 
 
+void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool verbose);
+
 void usage() {
     printf("packet_tx -- transmit simple packets\n");
     printf("\n");
@@ -192,7 +194,7 @@ int main (int argc, char **argv)
         // generate the entire frame
         framegen64_execute(fg, header, payload, frame_samples);
 
-     unsigned int num_buffers = frame_len / 256;
+     //unsigned int num_buffers = frame_len / 256;
      std::vector<std::vector<std::complex<float> *> > buffs_vec;
 
     unsigned int usrp_sample_counter = 0;
@@ -232,7 +234,7 @@ int main (int argc, char **argv)
     bool finished_transmitting = false;
     bool end_transmit_flag = false;
     int64_t receive_sample_counter = 0;
-    int64_t delta = 3 * 1.5625e7; // sample rate of noctar (2.4e9)/16
+    int64_t delta = 3 * 1e5;// sample rate of noctar (2.4e9)/16
 
 
 
@@ -244,10 +246,12 @@ int main (int argc, char **argv)
         
         if (!transmitted && receive_sample_counter >= 10000) {
            transmitted = true;
-	   std::cout << "start transmission: " << receive_sample_counter << std::endl;
            start_transmit = receive_sample_counter;
-        
+	   std::cout << "start transmission: " << start_transmit << std::endl;
+           
            ////// transmit with thread /////
+	   transmit(num_frames, tx_stream, buffs_vec, md, verbose);
+	   finished_transmitting = true;
         }
  
         if (!end_transmit_flag && finished_transmitting) {
@@ -257,9 +261,12 @@ int main (int argc, char **argv)
 	    
         }
 
-	if (end_transmit_flag && receive_sample_counter > end_transmit+delta) {
-	    std::cout << "end program: " << receive_sample_counter << std::endl;
-	    break;
+	if (end_transmit_flag) {
+	    std::cout << "end_transmit: " << end_transmit << " delta: " << delta << " ended samples: " << receive_sample_counter << std::endl;	
+	    if (receive_sample_counter > end_transmit+delta) {
+	    	std::cout << "end program: " << receive_sample_counter << std::endl;
+	    	break;
+	    }
 	}
 
 	write(fd_write, buff, num_read_bytes);
