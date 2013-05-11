@@ -169,7 +169,7 @@ int main (int argc, char **argv)
     // allocate array to hold frame generator samples
     unsigned int frame_len = FRAME64_LEN;   // length of frame64 (defined in liquid.h)
     std::complex<float> frame_samples[frame_len];
-    std::cout << frame_len << std::endl;
+    //std::cout << frame_len << std::endl;
     /* alho:
        as of may 7 2013, on belinkov-precision-t5600
        value of frame_len is 1340, frame_samples is array of 1340 samples
@@ -190,39 +190,35 @@ int main (int argc, char **argv)
 
 
     // create one frame for the entire transmission
-        // write header (first two bytes packet ID, remaining are random)
-         unsigned int fixed_pid = 0; // try framing a fixed packet
+    // write header (first two bytes packet ID, remaining are random)
+     unsigned int fixed_pid = 0; // try framing a fixed packet
                 header[0] = (fixed_pid >> 8) & 0xff;
 	        header[1] = (fixed_pid     ) & 0xff;
 	        for (j=2; j<8; j++)
 	          header[j] = rand() & 0xff;
 
-        /// initialize payload
-        for (j=0; j<64; j++)
-	payload[j] = rand() & 0xff;
+    /// initialize payload
+    for (j=0; j<64; j++)
+        payload[j] = rand() & 0xff;
 
-        // generate the entire frame
-        framegen64_execute(fg, header, payload, frame_samples);
-
-     //unsigned int num_buffers = frame_len / 256;
-     std::vector<std::vector<std::complex<float> *> > buffs_vec;
-
-    unsigned int usrp_sample_counter = 0;
+    // generate the entire frame
+    framegen64_execute(fg, header, payload, frame_samples);
 
     // prepare buffs
+    //unsigned int num_buffers = frame_len / 256;
+    std::vector<std::vector<std::complex<float> *> > buffs_vec;
+    unsigned int usrp_sample_counter = 0;
     std::vector<std::complex<float> > cur_usrp_buffer(256);
-        for (j=0; j<frame_len; j++) {
-                cur_usrp_buffer[usrp_sample_counter++] = g*frame_samples[j];
-                if (usrp_sample_counter == 256) {
-                    usrp_sample_counter = 0;
-                    std::vector<std::complex<float> > usrp_buffer(cur_usrp_buffer);
-                    std::vector<std::complex<float> *> buffs(usrp->get_tx_num_channels(), &usrp_buffer.front());    
-                    buffs_vec.push_back(buffs);
-                }
-         }
+    for (j=0; j<frame_len; j++) {
+        cur_usrp_buffer[usrp_sample_counter++] = g*frame_samples[j];
+        if (usrp_sample_counter == 256) {
+            usrp_sample_counter = 0;
+            std::vector<std::complex<float> > usrp_buffer(cur_usrp_buffer);
+            std::vector<std::complex<float> *> buffs(usrp->get_tx_num_channels(), &usrp_buffer.front());    
+            buffs_vec.push_back(buffs);
+        }
+    }
 
-
-    ////// START READING NOCTAR ////////
 
     // open noctar device
     int fd_read = open("/dev/langford", O_RDONLY);
@@ -230,6 +226,7 @@ int main (int argc, char **argv)
     int fd_write = open("./noctar_samples", O_WRONLY | O_CREAT, S_IRUSR
                                           | S_IWUSR | S_IROTH | S_IWOTH);
 
+    // parameters for receive loop
     unsigned int num_samples_to_read = 256;
     unsigned int num_bytes_to_read = 4*num_samples_to_read;
     char buff[num_bytes_to_read];
@@ -239,16 +236,20 @@ int main (int argc, char **argv)
     int64_t start_transmit = 0;
     int64_t end_transmit = 0; 
     int64_t end_program = 0; 
+    int64_t receive_sample_counter = 0;
+    int64_t delta = 3 * (2.4e9)/32;// sample rate of noctar (2.4e9)/16
+    
+    // thread
+    pthread_t transmit_thread;
+    int iret; // return value of create thread
 
-    ///////////// START COUNTER ////////////
+    // status flags
     bool transmitted = false;
     bool finished_transmitting = false;
     bool end_transmit_flag = false;
-    int64_t receive_sample_counter = 0;
-    int64_t delta = 3 * (2.4e9)/32;// sample rate of noctar (2.4e9)/16
-    pthread_t transmit_thread;
-    int iret;
-
+    
+    
+    // construct arguments for transmit function
     struct transmit_arg_struct transmit_args;
     transmit_args.num_frames = num_frames;
     transmit_args.tx_stream = tx_stream;
@@ -257,22 +258,26 @@ int main (int argc, char **argv)
     transmit_args.finished_transmitting = &finished_transmitting;
     transmit_args.verbose = verbose;
 
+     
+    ///////////// START COUNTER ////////////
     while(true) {
        
         num_read_bytes = read(fd_read, buff, num_bytes_to_read);
 	num_read_samples = num_read_bytes / 4;
         receive_sample_counter += num_read_samples;
         
+        // transmit
         if (!transmitted && receive_sample_counter >= 10000) {
            transmitted = true;
            start_transmit = receive_sample_counter;
 	   //std::cout << "start transmission: " << start_transmit << std::endl;
               
-           ////// TODO: transmit with thread /////
+           // transmit with thread
 	   iret = pthread_create( &transmit_thread, NULL, transmit, (void *)&transmit_args);
 	   //transmit(num_frames, tx_stream, buffs_vec, md, &finished_transmitting, verbose);
         }
- 
+        
+        // done transmitting? 
         if (!end_transmit_flag && finished_transmitting) {
             end_transmit_flag = true;
 	    end_transmit = receive_sample_counter;
@@ -281,7 +286,7 @@ int main (int argc, char **argv)
         }
 
 	if (end_transmit_flag) {
-	    //std::cout << "end_transmit: " << end_transmit << " delta: " << delta << " ended samples: " << receive_sample_counter << std::endl;	
+            // wait for delta before ending
 	    if (receive_sample_counter > end_transmit+delta) {
 	    	//std::cout << "end program: " << receive_sample_counter << std::endl;
                 end_program = receive_sample_counter;
@@ -308,6 +313,7 @@ int main (int argc, char **argv)
 
 
 //void *transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool &finished_transmitting, bool verbose) {
+
 void *transmit( void *args ) {
     transmit_arg_struct *transmit_args = (transmit_arg_struct*)args;
     uhd::tx_metadata_t md = transmit_args->md;
@@ -321,7 +327,7 @@ void *transmit( void *args ) {
             for (unsigned int k=0; k<transmit_args->buffs_vec.size(); k++) {
               transmit_args->tx_stream->send(transmit_args->buffs_vec[k], 256, md, 0.1);
             }
-		
+
     } // packet loop
  
     // send a mini EOB packet
@@ -334,6 +340,8 @@ void *transmit( void *args ) {
     // sleep for a small amount of time to allow USRP buffers
     // to flush
     //usleep(100000);
+
+    // turn on finished transmit flag
     *(transmit_args->finished_transmitting) = true;
 
     //finished
