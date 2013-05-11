@@ -51,7 +51,8 @@ struct transmit_arg_struct {
     bool verbose;
 };
 
-void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool verbose);
+//void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool verbose);
+void *transmit(void *args);
 
 void usage() {
     printf("packet_tx -- transmit simple packets\n");
@@ -229,7 +230,7 @@ int main (int argc, char **argv)
     int fd_write = open("./noctar_samples", O_WRONLY | O_CREAT, S_IRUSR
                                           | S_IWUSR | S_IROTH | S_IWOTH);
 
-    unsigned int num_samples_to_read = 10;
+    unsigned int num_samples_to_read = 256;
     unsigned int num_bytes_to_read = 4*num_samples_to_read;
     char buff[num_bytes_to_read];
     //ssize_t num_read_samples = read(fd_read, buff, num_bytes_to_read);
@@ -244,7 +245,7 @@ int main (int argc, char **argv)
     bool finished_transmitting = false;
     bool end_transmit_flag = false;
     int64_t receive_sample_counter = 0;
-    int64_t delta = 3 * 1e5;// sample rate of noctar (2.4e9)/16
+    int64_t delta = 3 * (2.4e9)/32;// sample rate of noctar (2.4e9)/16
     pthread_t transmit_thread;
     int iret;
 
@@ -268,14 +269,14 @@ int main (int argc, char **argv)
 	   //std::cout << "start transmission: " << start_transmit << std::endl;
               
            ////// TODO: transmit with thread /////
-	   iret = pthread_create( &transmit_thread, NULL, transmit, &transmit_args);
+	   iret = pthread_create( &transmit_thread, NULL, transmit, (void *)&transmit_args);
 	   //transmit(num_frames, tx_stream, buffs_vec, md, &finished_transmitting, verbose);
         }
  
         if (!end_transmit_flag && finished_transmitting) {
             end_transmit_flag = true;
 	    end_transmit = receive_sample_counter;
-	    std::cout << "finished transmitting: " << end_transmit << std::endl;
+	    //std::cout << "finished transmitting: " << end_transmit << std::endl;
 	    
         }
 
@@ -336,6 +337,6 @@ void *transmit( void *args ) {
     *(transmit_args->finished_transmitting) = true;
 
     //finished
-    printf("usrp data transfer complete\n");
+    //printf("usrp data transfer complete\n");
 }
 
