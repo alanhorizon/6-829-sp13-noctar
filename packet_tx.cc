@@ -40,7 +40,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/fcntl.h>
+#include <pthread.h>
 
+struct transmit_arg_struct {
+    unsigned int num_frames;
+    uhd::tx_streamer::sptr tx_stream;
+    std::vector<std::vector<std::complex<float> *> > buffs_vec;
+    uhd::tx_metadata_t md;
+    bool *finished_transmitting; 
+    bool verbose;
+};
 
 void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool verbose);
 
@@ -228,6 +237,7 @@ int main (int argc, char **argv)
     ssize_t num_read_samples = 0;
     int64_t start_transmit = 0;
     int64_t end_transmit = 0; 
+    int64_t end_program = 0; 
 
     ///////////// START COUNTER ////////////
     bool transmitted = false;
@@ -235,8 +245,16 @@ int main (int argc, char **argv)
     bool end_transmit_flag = false;
     int64_t receive_sample_counter = 0;
     int64_t delta = 3 * 1e5;// sample rate of noctar (2.4e9)/16
+    pthread_t transmit_thread;
+    int iret;
 
-
+    struct transmit_arg_struct transmit_args;
+    transmit_args.num_frames = num_frames;
+    transmit_args.tx_stream = tx_stream;
+    transmit_args.buffs_vec = buffs_vec;
+    transmit_args.md = md;
+    transmit_args.finished_transmitting = &finished_transmitting;
+    transmit_args.verbose = verbose;
 
     while(true) {
        
@@ -247,24 +265,25 @@ int main (int argc, char **argv)
         if (!transmitted && receive_sample_counter >= 10000) {
            transmitted = true;
            start_transmit = receive_sample_counter;
-	   std::cout << "start transmission: " << start_transmit << std::endl;
+	   //std::cout << "start transmission: " << start_transmit << std::endl;
               
            ////// TODO: transmit with thread /////
-	   transmit(num_frames, tx_stream, buffs_vec, md, verbose);
-	   finished_transmitting = true;
+	   iret = pthread_create( &transmit_thread, NULL, transmit, &transmit_args);
+	   //transmit(num_frames, tx_stream, buffs_vec, md, &finished_transmitting, verbose);
         }
  
         if (!end_transmit_flag && finished_transmitting) {
             end_transmit_flag = true;
-	    std::cout << "finished transmitting: " << receive_sample_counter << std::endl;
 	    end_transmit = receive_sample_counter;
+	    std::cout << "finished transmitting: " << end_transmit << std::endl;
 	    
         }
 
 	if (end_transmit_flag) {
 	    //std::cout << "end_transmit: " << end_transmit << " delta: " << delta << " ended samples: " << receive_sample_counter << std::endl;	
 	    if (receive_sample_counter > end_transmit+delta) {
-	    	std::cout << "end program: " << receive_sample_counter << std::endl;
+	    	//std::cout << "end program: " << receive_sample_counter << std::endl;
+                end_program = receive_sample_counter;
 	    	break;
 	    }
 	}
@@ -277,21 +296,29 @@ int main (int argc, char **argv)
     // close noctar
     close(fd_read);
     close(fd_write);
+    // write log
+    std::ofstream log_file;
+    log_file.open("./noctar_samples.log");
+    log_file << "start transmission: " << start_transmit << " finished transmitting: " << end_transmit << " end program: " << end_program << std::endl;
+    log_file.close();
+
     return 0;
 }
 
 
+//void *transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool &finished_transmitting, bool verbose) {
+void *transmit( void *args ) {
+    transmit_arg_struct *transmit_args = (transmit_arg_struct*)args;
+    uhd::tx_metadata_t md = transmit_args->md;
 
-
-void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool verbose) {
     unsigned int pid;
-    for (pid=0; pid<num_frames; pid++) {
-        if (verbose)
+    for (pid=0; pid<transmit_args->num_frames; pid++) {
+        if (transmit_args->verbose)
             printf("tx packet id: %6u\n", pid);
         
 	    // STREAMER API'S SEND METHOD
-            for (unsigned int k=0; k<buffs_vec.size(); k++) {
-              tx_stream->send(buffs_vec[k], 256, md, 0.1);
+            for (unsigned int k=0; k<transmit_args->buffs_vec.size(); k++) {
+              transmit_args->tx_stream->send(transmit_args->buffs_vec[k], 256, md, 0.1);
             }
 		
     } // packet loop
@@ -301,11 +328,12 @@ void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::ve
     md.end_of_burst   = true;
 
     // UPDATED SEND METHOD FROM STREAMER API
-    tx_stream->send("", 0, md, 0.1);
+    transmit_args->tx_stream->send("", 0, md, 0.1);
 
     // sleep for a small amount of time to allow USRP buffers
     // to flush
-    usleep(100000);
+    //usleep(100000);
+    *(transmit_args->finished_transmitting) = true;
 
     //finished
     printf("usrp data transfer complete\n");
