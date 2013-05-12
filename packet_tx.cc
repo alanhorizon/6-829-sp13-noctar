@@ -223,11 +223,11 @@ int main (int argc, char **argv)
     // open noctar device
     int fd_read = open("/dev/langford", O_RDONLY);
     // open file to write
-    int fd_write = open("./noctar_samples", O_WRONLY | O_CREAT, S_IRUSR
+    int fd_write = open("./noctar_samples", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR
                                           | S_IWUSR | S_IROTH | S_IWOTH);
 
     // parameters for receive loop
-    unsigned int num_samples_to_read = 256;
+    unsigned int num_samples_to_read = 100;
     unsigned int num_bytes_to_read = 4*num_samples_to_read;
     char buff[num_bytes_to_read];
     //ssize_t num_read_samples = read(fd_read, buff, num_bytes_to_read);

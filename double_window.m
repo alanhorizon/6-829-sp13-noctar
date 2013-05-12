@@ -1,6 +1,7 @@
 function rx_start_sample = double_window(filename, window_size)
     y = read_cshort_binary(filename);
-    power = abs(y(7000000:9000000));
+    % only iterate around the peak
+    power = abs(y(7000000:10000000));
     if (nargin < 2)
         window_size = 1000;
     end
@@ -21,6 +22,7 @@ function rx_start_sample = double_window(filename, window_size)
     
     [max_ratio, max_index] = max(ratio)
     
-    rx_start_sample = max_index;
+    % compensate for not iterating from start (above)
+    rx_start_sample = max_index + 7000000 + window_size + 1;
     
 end
