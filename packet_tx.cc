@@ -49,10 +49,13 @@ struct transmit_arg_struct {
     uhd::tx_metadata_t md;
     bool *finished_transmitting; 
     bool verbose;
+    uhd::usrp::multi_usrp::sptr usrp;
 };
 
 //void transmit(unsigned int num_frames, uhd::tx_streamer::sptr tx_stream, std::vector<std::vector<std::complex<float> *> > buffs_vec, uhd::tx_metadata_t md, bool verbose);
 void *transmit(void *args);
+
+void set_realtime_priority();
 
 void usage() {
     printf("packet_tx -- transmit simple packets\n");
@@ -257,7 +260,10 @@ int main (int argc, char **argv)
     transmit_args.md = md;
     transmit_args.finished_transmitting = &finished_transmitting;
     transmit_args.verbose = verbose;
+    transmit_args.usrp = usrp;
 
+    // set realtime priority
+    set_realtime_priority();
      
     ///////////// START COUNTER ////////////
     while(true) {
@@ -341,10 +347,70 @@ void *transmit( void *args ) {
     // to flush
     //usleep(100000);
 
+
+    /* trying to wait for async burst ACK - Not working... 
+    //std::cout << std::endl << "Waiting for async burst ACK... " << std::flush;
+    uhd::async_metadata_t async_md;
+    bool got_async_burst_ack = false;
+    //loop through all messages for the ACK packet (may have underflow messages in queue)
+    while (not got_async_burst_ack and transmit_args->usrp->get_device()->recv_async_msg(async_md, 0.1)){
+        got_async_burst_ack = (async_md.event_code == uhd::async_metadata_t::EVENT_CODE_BURST_ACK);
+    }
+    //std::cout << (got_async_burst_ack? "success" : "fail") << std::endl;
+    */
+
     // turn on finished transmit flag
     *(transmit_args->finished_transmitting) = true;
 
     //finished
     //printf("usrp data transfer complete\n");
 }
+
+void set_realtime_priority() {
+    int ret;
+
+    // We'll operate on the currently running thread.
+    pthread_t this_thread = pthread_self();
+
+    // struct sched_param is used to store the scheduling priority
+    struct sched_param params;
+    // It's possible to query the maximum and minimum priorities for a policy.
+    // We'll set the priority to the maximum.
+    params.sched_priority = sched_get_priority_max(SCHED_FIFO);
+
+    std::cout << "Trying to set thread realtime prio = " << params.sched_priority << std::endl;
+
+    // Attempt to set thread real-time priority to the SCHED_FIFO policy
+    ret = pthread_setschedparam(this_thread, SCHED_FIFO, &params);
+    if (ret != 0) {
+        // Print the error
+        std::cout << "Unsuccessful in setting thread realtime prio" << std::endl;
+        return;
+    }
+
+    // Now verify the change in thread priority
+    int policy = 0;
+    ret = pthread_getschedparam(this_thread, &policy, &params);
+    if (ret != 0) {
+        std::cout << "Couldn't retrieve real-time scheduling paramers" << std::endl;
+        return;
+    }
+
+    // Check the correct policy was applied
+    if(policy != SCHED_FIFO) {
+        std::cout << "Scheduling is NOT SCHED_FIFO!" << std::endl;
+    } else {
+        std::cout << "SCHED_FIFO OK" << std::endl;
+    }
+
+    // Print thread scheduling priority
+    std::cout << "Thread priority is " << params.sched_priority << std::endl;
+}
+
+
+
+
+
+
+
 
