@@ -1,7 +1,7 @@
 function rx_start_sample = double_window(filename, window_size)
     y = read_cshort_binary(filename);
     % only iterate around the peak
-    power = abs(y(7000000:10000000));
+    power = abs(y(7000000:9000000));
     if (nargin < 2)
         window_size = 1000;
     end
